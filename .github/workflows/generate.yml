@@ -1,0 +1,60 @@
+name: generate
+
+# Triggered by the Worker's dispatch call (worker/worker.js handleGenerate) when
+# someone clicks Generate on the static app. Runs on ubuntu-latest for the free
+# unlimited Actions minutes public repos get (see CLAUDE.md "Do not" — never
+# make this repo private).
+#
+# A push-to-input/scripts/ trigger for the curate-style flow is intentionally
+# not wired up yet — CLAUDE.md's build order puts src/publish/ (queue.json +
+# PR-based approval) after review, and that doesn't exist yet either. Adding
+# a push trigger now would either skip human approval (banned outright) or
+# call code that isn't written. Comes back once src/publish/ exists.
+
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: "Script text"
+        required: true
+      run_id:
+        description: "Run ID — status published to runs/<run_id>/status.json in R2"
+        required: true
+
+concurrency:
+  group: generate-${{ inputs.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Install pipeline
+        run: pip install -e .
+
+      - name: Write script to file
+        run: |
+          mkdir -p /tmp/run
+          cat > /tmp/run/script.md <<'SCRIPT_EOF'
+          ${{ inputs.script }}
+          SCRIPT_EOF
+
+      - name: Generate Reel and publish status/video/gallery to R2
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_PUBLIC_DOMAIN: ${{ vars.R2_PUBLIC_DOMAIN }}
+        run: python -m scripts.run_and_publish --script /tmp/run/script.md --run-id "${{ inputs.run_id }}"

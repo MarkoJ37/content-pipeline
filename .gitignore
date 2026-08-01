@@ -1,0 +1,12 @@
+# generated media stays out of the repo (it goes to R2)
+output/
+build/
+spend_log.jsonl
+
+# local tool preferences, not shared project config
+.claude/settings.local.json
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/

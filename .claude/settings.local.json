@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements --disable-interactivity)",
+      "PowerShell(pip install faster-whisper pillow pytest ruff --quiet)",
+      "PowerShell(python -m pytest tests -m \"not integration\" -q 2>$null)",
+      "PowerShell(python -m ruff check src tests)",
+      "PowerShell(python -m ruff check src tests scripts)"
+    ]
+  }
+}

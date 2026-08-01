@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reel Factory — script to Instagram Reel, ~$0.04</title>
+<style>__INLINE_CSS__</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Reel Factory</h1>
+    <p class="tagline">Paste a script. Get a finished, captioned Instagram Reel.
+      Watch what it costs while it works.</p>
+  </header>
+
+  <section id="generator" class="card">
+    <label for="script">Your script <span class="hint">(60–90 words ≈ a 30s Reel)</span></label>
+    <textarea id="script" rows="6"
+      placeholder="Your brain isn't broken. Your notifications are. ..."></textarea>
+    <div class="row">
+      <input id="access-code" type="password" placeholder="access code" autocomplete="off">
+      <button id="generate" type="button">Generate Reel</button>
+    </div>
+    <p id="form-error" class="error" hidden></p>
+    <p class="word-count"><span id="word-count">0</span> words</p>
+  </section>
+
+  <section id="progress" class="card" hidden>
+    <div class="cost-display">
+      <span class="cost-label">cost so far</span>
+      <span id="cost" class="cost-value">$0.000</span>
+    </div>
+    <ol id="stages">
+      <li data-stage="shotlist">Shot list <span class="stage-cost"></span></li>
+      <li data-stage="voice">Voiceover <span class="stage-cost"></span></li>
+      <li data-stage="align">Word timing <span class="stage-note">free, local</span></li>
+      <li data-stage="footage">Footage <span class="stage-cost"></span></li>
+      <li data-stage="assemble">Assembly <span class="stage-note">free, ffmpeg</span></li>
+      <li data-stage="review">Quality check <span class="stage-cost"></span></li>
+    </ol>
+    <p id="progress-note" class="hint"></p>
+  </section>
+
+  <section id="result" class="card" hidden>
+    <h2>Done — <span id="final-cost"></span></h2>
+    <video id="player" controls playsinline preload="metadata"></video>
+  </section>
+
+  <section id="gallery-section">
+    <h2>Previous Reels</h2>
+    <div id="gallery" class="gallery"></div>
+  </section>
+
+  <footer>
+    <p>No servers. No subscriptions. GitHub Actions + Cloudflare free tier +
+      ~4 cents of AI per Reel. <span id="backend-status"></span></p>
+  </footer>
+</main>
+<script>__INLINE_JS__</script>
+</body>
+</html>
