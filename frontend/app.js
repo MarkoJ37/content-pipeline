@@ -75,7 +75,7 @@ function startPolling(runId, startedAt = Date.now()) {
   $("result").hidden = true;
   $("resume").hidden = true;
   $("cost").textContent = "$0.000";
-  $("progress-note").textContent = "Waiting to start. Most Reels take 2?5 minutes. You can refresh this page safely.";
+  $("progress-note").textContent = "Waiting to start. Most Reels take 2-5 minutes. You can refresh this page safely.";
   setStages({});
   clearTimeout(pollTimer);
   poll(activeRun);
@@ -168,12 +168,12 @@ async function loadGallery() {
     title.textContent = item.title || "untitled";
     const cost = document.createElement("span");
     cost.className = "cost";
-    cost.textContent = `$${(item.cost_usd || 0).toFixed(3)}`;
+    cost.textContent = `EST. AI COST / $${(item.cost_usd || 0).toFixed(3)}`;
     meta.append(title, cost);
     div.append(video, meta);
     gallery.append(div);
   }
-  document.getElementById("gallery-section").hidden = items.length === 0;
+  $("gallery-note").textContent = items.length ? "" : "No Reels to show right now. Please check back soon.";
 }
 
 /* ---- backend health note ---- */
@@ -184,11 +184,12 @@ async function loadGallery() {
     backendReady = Boolean(body.dispatch_ready);
     $("generate").disabled = Boolean(activeRun) || !backendReady;
     if (!backendReady) {
-      $("backend-status").textContent =
-        "(demo note: GitHub dispatch not connected yet — Generate is disabled.)";
+      $("backend-status").textContent = "Preview mode. Explore the examples below; generation is currently unavailable.";
+    } else {
+      $("backend-status").textContent = "Studio ready. One demo generation per day (UTC).";
     }
   } catch {
-    /* worker not reachable; leave footer as-is */
+    $("backend-status").textContent = "Studio status unavailable. Please try again later.";
   }
 })();
 
@@ -200,3 +201,9 @@ try {
     startPolling(saved.runId, saved.startedAt);
   }
 } catch { /* Ignore unavailable or corrupt browser storage. */ }
+
+$("example").addEventListener("click", () => {
+  $("script").value = "Your best ideas deserve more than a place in your notes app. Start small. Pick one thing you learned this week. Explain it like you are talking to a friend. Give them one simple action to try today. You do not need a perfect studio or a complicated plan. Just a useful idea, a clear voice, and the courage to share it. What will you make today?";
+  $("word-count").textContent = $("script").value.split(/\s+/).length;
+  $("script").focus();
+});
