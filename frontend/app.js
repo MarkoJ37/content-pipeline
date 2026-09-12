@@ -20,12 +20,12 @@ $("generate").addEventListener("click", async () => {
   error.hidden = true;
 
   if (words < 40 || words > 120) {
-    error.textContent = `Script is ${words} words — aim for 60–90 (about 30 seconds spoken).`;
+    error.textContent = `Script is ${words} words â€” aim for 60â€“90 (about 30 seconds spoken).`;
     error.hidden = false;
     return;
   }
   if (!$("access-code").value) {
-    error.textContent = "Access code required (this demo is gated to stop key-burning).";
+    error.textContent = "Enter your access code to generate a Reel.";
     error.hidden = false;
     return;
   }
@@ -45,50 +45,90 @@ $("generate").addEventListener("click", async () => {
     }
     startPolling(body.run_id);
   } catch (e) {
-    error.textContent = "Network error — try again.";
+    error.textContent = "Network error â€” try again.";
     error.hidden = false;
   } finally {
-    $("generate").disabled = false;
+    $("generate").disabled = Boolean(activeRun) || !backendReady;
   }
 });
 
 /* ---- progress polling (status.json written to R2 by the pipeline) ---- */
 const STAGES = ["shotlist", "voice", "align", "footage", "assemble", "review"];
 let pollTimer = null;
+let activeRun = null;
+let backendReady = true;
+const RUN_KEY = "reel-factory-run";
+const MAX_WAIT_MS = 25 * 60 * 1000;
 
-function startPolling(runId) {
+function remember(run) {
+  try {
+    if (run) localStorage.setItem(RUN_KEY, JSON.stringify(run));
+    else localStorage.removeItem(RUN_KEY);
+  } catch { /* Storage may be disabled; generation still works. */ }
+}
+
+function startPolling(runId, startedAt = Date.now()) {
+  activeRun = { runId, startedAt };
+  remember(activeRun);
+  $("generate").disabled = true;
   $("progress").hidden = false;
   $("result").hidden = true;
-  $("progress-note").textContent = "Generation runs on GitHub Actions — typically 2–5 minutes.";
+  $("resume").hidden = true;
+  $("cost").textContent = "$0.000";
+  $("progress-note").textContent = "Waiting to start. Most Reels take 2?5 minutes. You can refresh this page safely.";
   setStages({});
-  clearInterval(pollTimer);
-  pollTimer = setInterval(() => poll(runId), POLL_MS);
-  poll(runId);
+  clearTimeout(pollTimer);
+  poll(activeRun);
 }
 
-async function poll(runId) {
-  let status;
+function finishRun() {
+  activeRun = null;
+  remember(null);
+  $("generate").disabled = !backendReady;
+}
+
+async function poll(run) {
+  if (activeRun !== run) return;
+  if (Date.now() - run.startedAt > MAX_WAIT_MS) {
+    $("progress-note").textContent = "This is taking longer than expected. Check again before starting another Reel to avoid duplicate costs.";
+    $("resume").hidden = false;
+    return;
+  }
   try {
-    const resp = await fetch(`${R2_BASE}/runs/${runId}/status.json`, { cache: "no-store" });
-    if (!resp.ok) return; // status.json not written yet
-    status = await resp.json();
-  } catch {
-    return; // transient network error; next tick retries
-  }
-  setStages(status.stages || {});
-  $("cost").textContent = `$${(status.cost_usd || 0).toFixed(3)}`;
-
-  if (status.state === "done") {
-    clearInterval(pollTimer);
-    $("final-cost").textContent = `$${(status.cost_usd || 0).toFixed(3)}`;
-    $("player").src = `${R2_BASE}/${status.video_key}`;
-    $("result").hidden = false;
-    loadGallery();
-  } else if (status.state === "failed") {
-    clearInterval(pollTimer);
-    $("progress-note").textContent = `Failed at ${status.failed_stage || "?"}: ${status.error || "unknown error"}`;
-  }
+    const resp = await fetch(`${R2_BASE}/runs/${run.runId}/status.json`, {
+      cache: "no-store", signal: AbortSignal.timeout(15000),
+    });
+    if (resp.ok) {
+      const status = await resp.json();
+      if (activeRun !== run) return;
+      setStages(status.stages || {});
+      $("cost").textContent = `$${Number(status.cost_usd || 0).toFixed(3)}`;
+      if (status.state === "done") {
+        $("final-cost").textContent = `$${Number(status.cost_usd || 0).toFixed(3)}`;
+        $("player").src = `${R2_BASE}/${status.video_key}`;
+        $("download").href = $("player").src;
+        $("result").hidden = false;
+        $("progress-note").textContent = "Your Reel is ready. Preview it before sharing.";
+        finishRun();
+        loadGallery();
+        return;
+      }
+      if (status.state === "failed" || status.state === "needs_review") {
+        $("progress-note").textContent = status.state === "needs_review"
+          ? `Quality check needs attention: ${(status.issues || []).join("; ")}`
+          : `Generation stopped at ${status.failed_stage || "setup"}. ${status.error || "Please try again later."}`;
+        finishRun();
+        return;
+      }
+      $("progress-note").textContent = "Creating your Reel. Progress updates after each step.";
+    }
+  } catch { /* Retry transient failures within the overall deadline. */ }
+  if (activeRun === run) pollTimer = setTimeout(() => poll(run), POLL_MS);
 }
+
+$("resume").addEventListener("click", () => {
+  if (activeRun) startPolling(activeRun.runId);
+});
 
 function setStages(stages) {
   for (const name of STAGES) {
@@ -96,9 +136,8 @@ function setStages(stages) {
     const info = stages[name];
     li.classList.toggle("done", Boolean(info && info.done));
     li.classList.toggle("active", Boolean(info && !info.done));
-    if (info && info.cost_usd != null) {
-      li.querySelector(".stage-cost").textContent = `$${info.cost_usd.toFixed(3)}`;
-    }
+    const cost = li.querySelector(".stage-cost");
+    if (cost) cost.textContent = info && info.cost_usd != null ? `$${info.cost_usd.toFixed(3)}` : "";
   }
 }
 
@@ -111,6 +150,7 @@ async function loadGallery() {
   } catch {
     /* gallery is optional */
   }
+  if (!Array.isArray(items)) items = [];
   const gallery = $("gallery");
   gallery.replaceChildren();
   for (const item of items) {
@@ -141,9 +181,11 @@ async function loadGallery() {
   try {
     const resp = await fetch("/api/health");
     const body = await resp.json();
-    if (!body.dispatch_ready) {
+    backendReady = Boolean(body.dispatch_ready);
+    $("generate").disabled = Boolean(activeRun) || !backendReady;
+    if (!backendReady) {
       $("backend-status").textContent =
-        "(demo note: GitHub dispatch not connected yet — Generate is disabled.)";
+        "(demo note: GitHub dispatch not connected yet â€” Generate is disabled.)";
     }
   } catch {
     /* worker not reachable; leave footer as-is */
@@ -151,3 +193,10 @@ async function loadGallery() {
 })();
 
 loadGallery();
+
+try {
+  const saved = JSON.parse(localStorage.getItem(RUN_KEY));
+  if (saved && /^[A-Za-z0-9_-]{1,64}$/.test(saved.runId) && Number.isFinite(saved.startedAt)) {
+    startPolling(saved.runId, saved.startedAt);
+  }
+} catch { /* Ignore unavailable or corrupt browser storage. */ }

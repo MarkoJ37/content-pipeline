@@ -26,9 +26,9 @@
  * The static page is inlined as INDEX_HTML below the export.
  */
 
-const RATE_HOURLY = 3; // per IP
-const RATE_DAILY = 8; // per IP
-const GLOBAL_DAILY = 15; // total dispatches per day, any IP
+const RATE_HOURLY = 1; // per IP
+const RATE_DAILY = 1; // per IP
+const GLOBAL_DAILY = 1; // total dispatches per day, any IP
 const RESERVED_PER_RUN = 0.1; // conservative — typical run is ~$0.03-0.05
 
 export default {
@@ -63,6 +63,13 @@ async function handleGenerate(request, env) {
     return json({ error: "invalid JSON body" }, 400);
   }
 
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return json({ error: "Expected a JSON object" }, 400);
+  }
+  if (typeof body.script !== "string" || body.script.length > 12000) {
+    return json({ error: "Script must be text, at most 12,000 characters" }, 400);
+  }
+
   // 1. access code — compared against a Worker secret, rotated per demo
   if (!body.access_code || body.access_code !== env.ACCESS_CODE) {
     return json({ error: "wrong access code" }, 403);
@@ -91,7 +98,7 @@ async function handleGenerate(request, env) {
   // 4. daily spend ceiling, with a safety margin for the accounting lag —
   // spend.json only updates when a run *finishes*, so several runs could
   // dispatch in the gap between "spent" being read and it catching up
-  const cap = parseFloat(env.DAILY_SPEND_CAP || "0.5");
+  const cap = parseFloat(env.DAILY_SPEND_CAP || "0.10");
   const spent = await todaysSpend(env);
   if (spent + RESERVED_PER_RUN > cap) {
     return json(
@@ -107,7 +114,7 @@ async function handleGenerate(request, env) {
       503,
     );
   }
-  const runId = crypto.randomUUID().slice(0, 8);
+  const runId = crypto.randomUUID();
   const resp = await fetch(
     `https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/generate.yml/dispatches`,
     {

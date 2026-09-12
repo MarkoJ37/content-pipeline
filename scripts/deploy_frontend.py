@@ -65,6 +65,7 @@ def upload_worker(source: str, bindings: list[dict]) -> None:
             "main_module": "worker.js",
             "compatibility_date": "2025-01-01",
             "bindings": bindings,
+            "keep_bindings": ["secret_text"],
         }
     )
     parts = (
@@ -129,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--access-code", default=None)
-    parser.add_argument("--spend-cap", default="0.50")
+    parser.add_argument("--spend-cap", default="0.10")
     parser.add_argument(
         "--r2-domain",
         default=os.environ.get("R2_PUBLIC_DOMAIN"),

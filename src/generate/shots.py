@@ -55,6 +55,8 @@ def validate_shot_list(script: str, shots: list[Shot]) -> None:
     if len(generated) > 2:
         raise ValueError(f"{len(generated)} GENERATE shots; cap is 2 (AI video is the cost sink)")
     for i, shot in enumerate(shots):
+        if shot.kind not in {"STOCK", "TEXT_CARD"}:
+            raise ValueError(f"shot {i} has unsupported kind {shot.kind}")
         if shot.kind == "TEXT_CARD" and not shot.card_text:
             raise ValueError(f"shot {i} is TEXT_CARD but has no card_text")
         if shot.kind == "STOCK" and not shot.keywords:
@@ -78,7 +80,7 @@ SHOT_SCHEMA = {
                 "properties": {
                     "kind": {
                         "type": "string",
-                        "enum": ["STOCK", "TEXT_CARD", "SCREEN_REC", "GENERATE"],
+                        "enum": ["STOCK", "TEXT_CARD"],
                     },
                     "spoken": {"type": "string"},
                     "card_text": {"type": "string"},
@@ -112,10 +114,7 @@ keywords that imply a visible face (e.g. "woman smiling").
    - TEXT_CARD: for punchy emphasis — hooks, numbered points, stats, the CTA. \
 Provide `card_text`: max 4 lines of max 18 characters, line breaks as \\n. \
 Punchy fragments, not sentences.
-   - GENERATE: AI video, expensive. Use ONLY when stock genuinely cannot \
-cover the shot (max 2 per Reel; most Reels need zero). Provide `prompt`.
-   - SCREEN_REC: never use it unless the user says screen-recording footage \
-exists.
+   Only STOCK and TEXT_CARD are supported. Never request generated video or screen recordings.
 4. Unused fields must be "" (or [] for keywords).
 5. Mix: aim for roughly 60-80% STOCK and 20-40% TEXT_CARD. Open with a \
 strong hook shot; end with the CTA."""

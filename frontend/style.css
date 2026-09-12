@@ -107,3 +107,10 @@ video { width: 100%; max-height: 70vh; border-radius: 10px; background: #000; ma
 .gallery-meta .title { color: var(--text); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 footer { color: var(--muted); font-size: 0.85rem; text-align: center; margin-top: 36px; }
+
+.download { display: inline-block; margin-top: 14px; color: var(--accent); font-weight: 700; }
+#resume { margin-top: 12px; }
+@media (max-width: 420px) {
+  .row { flex-direction: column; }
+  main { padding-top: 20px; }
+}

@@ -62,7 +62,7 @@ def api_request(
         raise StorageError(f"{method} {path} -> HTTP {e.code}: {detail}") from e
     if not payload.get("success", False):
         raise StorageError(f"{method} {path} -> {payload.get('errors')}")
-    return payload.get("result") or {}
+    return payload.get("result", {})
 
 
 def ensure_bucket(name: str = DEFAULT_BUCKET) -> None:

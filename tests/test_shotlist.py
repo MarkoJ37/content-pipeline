@@ -129,3 +129,11 @@ def test_parse_shots_drops_empty_keywords():
                     "keywords": ["", "hands", ""], "prompt": ""}]}
     )
     assert parsed[0].keywords == ["hands"]
+
+
+@pytest.mark.parametrize("kind", ["GENERATE", "SCREEN_REC", "UNKNOWN"])
+def test_unsupported_shot_rejected(kind):
+    shots = shots_mod._parse_shots(_valid_payload())
+    shots[0].kind = kind
+    with pytest.raises(ValueError, match="unsupported kind"):
+        shots_mod.validate_shot_list(SCRIPT, shots)

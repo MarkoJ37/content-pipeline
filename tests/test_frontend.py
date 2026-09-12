@@ -214,3 +214,11 @@ def test_build_worker_inlines_everything():
     html = json.loads(literal)
     assert html.startswith("<!doctype html>")
     assert "cost-value" in html
+
+
+def test_api_request_preserves_empty_list(monkeypatch):
+    monkeypatch.setattr(
+        storage.urllib.request, "urlopen",
+        lambda *a, **kw: _ok_bytes(b'{"success":true,"result":[]}'),
+    )
+    assert storage.api_request("/r2/buckets") == []

@@ -23,6 +23,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -42,6 +43,10 @@ class StatusPublisher:
     def __init__(self, run_id: str):
         self.run_id = run_id
         self.stages: dict[str, dict] = {}
+
+    def stage_started(self, name: str) -> None:
+        self.stages[name] = {"done": False}
+        self._publish("running")
 
     def stage_done(self, name: str, cost_usd: float = 0.0) -> None:
         self.stages[name] = {"done": True, "cost_usd": round(cost_usd, 4)}
@@ -97,6 +102,8 @@ def main(argv: list[str] | None = None) -> int:
     script_path = Path(args.script)
     script = " ".join(script_path.read_text(encoding="utf-8").split())
     name = args.run_id
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name):
+        parser.error("run-id must contain 1-64 letters, digits, underscores or hyphens")
     out_path = Path(f"output/{name}.mp4")
     workdir = Path(f"build/{name}")
     workdir.mkdir(parents=True, exist_ok=True)
@@ -104,6 +111,7 @@ def main(argv: list[str] | None = None) -> int:
     status = StatusPublisher(args.run_id)
     current_stage = "shotlist"
     try:
+        status.stage_started(current_stage)
         word_count = len(script.split())
         if not 40 <= word_count <= 120:
             raise ValueError(f"script is {word_count} words; needs 40-120")
@@ -120,6 +128,7 @@ def main(argv: list[str] | None = None) -> int:
 
         # 2. voice
         current_stage = "voice"
+        status.stage_started(current_stage)
         cost0 = spend.total_spend()
         audio_path = workdir / "voiceover.wav"
         hash_path = workdir / "voiceover.sha"
@@ -136,6 +145,7 @@ def main(argv: list[str] | None = None) -> int:
 
         # 3. align (free, local)
         current_stage = "align"
+        status.stage_started(current_stage)
         if timings is None:
             timings = align.align(audio_path, script)
         if not align.check_alignment(timings, script):
@@ -145,6 +155,7 @@ def main(argv: list[str] | None = None) -> int:
 
         # 4. footage
         current_stage = "footage"
+        status.stage_started(current_stage)
         cost0 = spend.total_spend()
         stock_clips = resolve_stock_shots(shots, workdir)
         status.stage_done("footage", spend.total_spend() - cost0)
@@ -152,6 +163,7 @@ def main(argv: list[str] | None = None) -> int:
 
         # 5. assemble (free, ffmpeg)
         current_stage = "assemble"
+        status.stage_started(current_stage)
         out = assemble_reel(
             script, shots, timings, audio_path, duration, out_path, workdir,
             stock_clips=stock_clips,
@@ -162,12 +174,18 @@ def main(argv: list[str] | None = None) -> int:
 
         # 6. review
         current_stage = "review"
+        status.stage_started(current_stage)
         cost0 = spend.total_spend()
         review = review_reel(out, script, boundaries[-1][1], workdir)
         status.stage_done("review", spend.total_spend() - cost0)
         if not review.passed:
             print("review: FAILED —", "; ".join(review.issues))
 
+            status._publish("needs_review", issues=review.issues)
+            update_daily_spend()
+            return 2
+
+        current_stage = "upload"
         # 7. publish: video + gallery + spend.json
         video_key = f"videos/{name}.mp4"
         storage.upload(video_key, out, content_type="video/mp4")
