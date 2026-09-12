@@ -73,55 +73,39 @@ def test_status_publisher_reflects_running_total_spend(fake_upload):
 # -- gallery merge ------------------------------------------------------------------
 
 
-def test_update_gallery_prepends_new_entry(fake_upload, monkeypatch):
-    existing = [{"title": "old reel", "video_key": "videos/old.mp4", "cost_usd": 0.03}]
-    monkeypatch.setattr(
-        storage, "download_public", lambda domain, key: json.dumps(existing).encode()
-    )
-
-    rap.update_gallery("pub-x.r2.dev", "videos/new.mp4", "new reel", 0.04)
-
-    items = json.loads(fake_upload["gallery.json"])
-    assert items[0]["video_key"] == "videos/new.mp4"
-    assert items[1]["video_key"] == "videos/old.mp4"
+def test_gallery_writes_independent_records_without_reading_shared_index(fake_upload, monkeypatch):
+    def no_read(*args):
+        raise AssertionError("Gallery writes must not read the shared index")
+    monkeypatch.setattr(storage, "download_public", no_read)
+    rap.update_gallery("example.test", "videos/one.mp4", "one", 0.03)
+    rap.update_gallery("example.test", "videos/two.mp4", "two", 0.04)
+    assert json.loads(fake_upload["gallery/one.json"])["title"] == "one"
+    assert json.loads(fake_upload["gallery/two.json"])["title"] == "two"
+    assert "gallery.json" not in fake_upload
 
 
-def test_update_gallery_handles_first_ever_run(fake_upload, monkeypatch):
-    monkeypatch.setattr(storage, "download_public", lambda domain, key: None)
-
-    rap.update_gallery("pub-x.r2.dev", "videos/first.mp4", "first reel", 0.05)
-
-    items = json.loads(fake_upload["gallery.json"])
-    assert items == [{"title": "first reel", "video_key": "videos/first.mp4", "cost_usd": 0.05}]
-
-
-def test_update_gallery_caps_length(fake_upload, monkeypatch):
-    existing = [
-        {"title": f"reel {i}", "video_key": f"videos/{i}.mp4", "cost_usd": 0.03} for i in range(12)
-    ]
-    monkeypatch.setattr(
-        storage, "download_public", lambda domain, key: json.dumps(existing).encode()
-    )
-
-    rap.update_gallery("pub-x.r2.dev", "videos/new.mp4", "new reel", 0.04, keep=12)
-
-    items = json.loads(fake_upload["gallery.json"])
-    assert len(items) == 12
-    assert items[0]["video_key"] == "videos/new.mp4"
+def test_spend_records_do_not_overwrite_other_runs(fake_upload):
+    spend.log_spend("tts", 0.02)
+    rap.update_daily_spend("first")
+    rap.update_daily_spend("second")
+    records = [json.loads(v) for k, v in fake_upload.items() if k.startswith("spend/")]
+    assert len(records) == 2
+    assert {r["run_id"] for r in records} == {"first", "second"}
+    assert all(r["total_usd"] == 0.02 for r in records)
 
 
-# -- daily spend publish -------------------------------------------------------------
-
-
-def test_update_daily_spend_publishes_todays_total(fake_upload):
-    spend.log_spend("gemini-tts", 0.02)
-    spend.log_spend("claude-shotlist", 0.03)
-
-    rap.update_daily_spend()
-
-    body = json.loads(fake_upload["spend.json"])
-    assert body["total_usd"] == pytest.approx(0.05)
-    assert body["date"]  # ISO date string present
+def test_spend_republication_is_idempotent_and_workflow_retries_are_separate(
+    fake_upload, monkeypatch,
+):
+    spend.log_spend("tts", 0.02)
+    monkeypatch.setenv("GITHUB_RUN_ID", "123")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    rap.update_daily_spend("run")
+    rap.update_daily_spend("run")
+    assert len(fake_upload) == 1
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
+    rap.update_daily_spend("run")
+    assert len(fake_upload) == 2
 
 
 def test_stage_started_reports_active_stage(fake_upload):

@@ -164,6 +164,7 @@ def main(argv: list[str] | None = None) -> int:
     print("4/5 worker deploy")
     source = build_worker_source(ROOT / "frontend", ROOT / "worker" / "worker.js", r2_base)
     bindings = [
+        {"type": "r2_bucket", "name": "MEDIA", "bucket_name": storage.DEFAULT_BUCKET},
         {"type": "kv_namespace", "name": "RATE_KV", "namespace_id": kv_id},
         {"type": "secret_text", "name": "ACCESS_CODE", "text": access_code},
         {"type": "plain_text", "name": "R2_PUBLIC_BASE", "text": r2_base},

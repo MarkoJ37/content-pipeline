@@ -25,6 +25,7 @@ import json
 import os
 import re
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 from src.generate.assemble import assemble_reel, shot_boundaries
@@ -59,6 +60,7 @@ class StatusPublisher:
         self._publish("failed", failed_stage=failed_stage, error=error[:500])
 
     def _publish(self, state: str, **extra) -> None:
+        update_daily_spend(self.run_id)
         body = {"state": state, "stages": self.stages, "cost_usd": spend.total_spend(), **extra}
         storage.upload(
             f"runs/{self.run_id}/status.json",
@@ -67,25 +69,33 @@ class StatusPublisher:
         )
 
 
-def update_gallery(
-    domain: str, video_key: str, title: str, cost_usd: float, keep: int = 12
-) -> None:
-    raw = storage.download_public(domain, "gallery.json")
-    items = json.loads(raw) if raw else []
-    items.insert(0, {"title": title, "video_key": video_key, "cost_usd": round(cost_usd, 4)})
+def update_gallery(domain: str, video_key: str, title: str, cost_usd: float) -> None:
+    """One object per video avoids read-modify-write races between runners."""
+    item = {
+        "title": title, "video_key": video_key, "cost_usd": round(cost_usd, 4),
+        "created_at": datetime.now(UTC).isoformat(),
+    }
     storage.upload(
-        "gallery.json", json.dumps(items[:keep]).encode(), content_type="application/json"
+        f"gallery/{Path(video_key).stem}.json", json.dumps(item).encode(),
+        content_type="application/json",
     )
 
 
-def update_daily_spend() -> None:
-    import datetime
-
-    body = {
-        "date": datetime.datetime.now(datetime.UTC).date().isoformat(),
-        "total_usd": spend.total_spend_today(),
-    }
-    storage.upload("spend.json", json.dumps(body).encode(), content_type="application/json")
+def update_daily_spend(run_id: str) -> None:
+    """Persist this execution's daily totals; the Worker sums independent records."""
+    execution = os.environ.get("GITHUB_RUN_ID", "local")
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
+    record_id = f"{run_id}-{execution}-{attempt}"
+    totals: dict[str, float] = {}
+    for record in spend.read_spend():
+        day = record["ts"][:10]
+        totals[day] = totals.get(day, 0.0) + record["cost_usd"]
+    for day, total in totals.items():
+        body = {"date": day, "run_id": run_id, "total_usd": round(total, 6)}
+        storage.upload(
+            f"spend/{day}/{record_id}.json", json.dumps(body).encode(),
+            content_type="application/json",
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -108,6 +118,7 @@ def main(argv: list[str] | None = None) -> int:
     workdir = Path(f"build/{name}")
     workdir.mkdir(parents=True, exist_ok=True)
 
+    os.environ.setdefault("SPEND_LOG_PATH", str(workdir / "spend.jsonl"))
     status = StatusPublisher(args.run_id)
     current_stage = "shotlist"
     try:
@@ -182,16 +193,16 @@ def main(argv: list[str] | None = None) -> int:
             print("review: FAILED —", "; ".join(review.issues))
 
             status._publish("needs_review", issues=review.issues)
-            update_daily_spend()
+            update_daily_spend(name)
             return 2
 
         current_stage = "upload"
-        # 7. publish: video + gallery + spend.json
+        # 7. publish independent video, gallery and spending records
         video_key = f"videos/{name}.mp4"
         storage.upload(video_key, out, content_type="video/mp4")
         title = script[:60] + ("..." if len(script) > 60 else "")
         update_gallery(domain, video_key, title, spend.total_spend())
-        update_daily_spend()
+        update_daily_spend(name)
         status.done(video_key)
         print(f"published: https://{domain}/{video_key}")
         print(f"total spend (all runs): ${spend.total_spend():.4f}")
@@ -201,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR at stage {current_stage}: {e}")
         try:
             status.failed(current_stage, str(e))
-            update_daily_spend()
+            update_daily_spend(name)
         except Exception as publish_error:  # best-effort — don't mask the original failure
             print(f"  (also failed to publish failure status: {publish_error})")
         return 1

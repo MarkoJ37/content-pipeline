@@ -145,7 +145,7 @@ function setStages(stages) {
 async function loadGallery() {
   let items = [];
   try {
-    const resp = await fetch(`${R2_BASE}/gallery.json`, { cache: "no-store" });
+    const resp = await fetch("/api/gallery", { cache: "no-store" });
     if (resp.ok) items = await resp.json();
   } catch {
     /* gallery is optional */

@@ -1,34 +1,10 @@
-/**
- * The Worker is the gate (see CLAUDE.md "Frontend"): it serves the static app,
- * holds the GitHub token, and enforces protections so a leaked URL or access
- * code cannot burn the AI keys overnight while nobody's watching:
- *   0. kill switch          (KV "pipeline:paused" — flip by hand in the
- *                            Cloudflare dashboard for an instant, no-redeploy stop)
- *   1. shared access code   (env.ACCESS_CODE secret; 403 on mismatch)
- *   2. per-IP rate limit    (Workers KV: RATE_HOURLY/hr, RATE_DAILY/day; 429)
- *   3. global daily limit   (Workers KV: GLOBAL_DAILY — caps total dispatches
- *                            regardless of how many distinct IPs hit the gate)
- *   4. daily spend ceiling  (reads spend.json from R2; refuses once spend +
- *                            a conservative per-run reserve would exceed the
- *                            cap, not just once the cap is already blown —
- *                            spend.json only updates when a run finishes, so
- *                            checking the raw total alone would let several
- *                            runs slip through mid-flight before it catches up)
- *
- * Not an auth system — headers and counters, exactly as specified. KV isn't
- * atomic (read-then-write, not compare-and-swap), so a true simultaneous
- * burst can still let a handful of extra requests through a limit — accepted
- * as a bounded, low-probability gap rather than reached for Durable Objects.
- *
- * Bindings injected at deploy time (scripts/deploy_frontend.py):
- *   RATE_KV (KV), ACCESS_CODE (secret), R2_PUBLIC_BASE, DAILY_SPEND_CAP,
- *   GITHUB_TOKEN (secret, optional until repo exists), GITHUB_REPO (optional).
- * The static page is inlined as INDEX_HTML below the export.
+/** Low-cost demo gate. R2 conditional writes enforce one dispatch per UTC day.
+ * Reservations survive network errors and failed runs; they are never auto-refunded.
+ * This limits dispatches, not a provider's final invoice. KV is only a secondary IP throttle.
  */
 
 const RATE_HOURLY = 1; // per IP
 const RATE_DAILY = 1; // per IP
-const GLOBAL_DAILY = 1; // total dispatches per day, any IP
 const RESERVED_PER_RUN = 0.1; // conservative — typical run is ~$0.03-0.05
 
 export default {
@@ -41,10 +17,27 @@ export default {
       });
     }
     if (request.method === "GET" && url.pathname === "/api/health") {
-      return json({ ok: true, dispatch_ready: Boolean(env.GITHUB_TOKEN && env.GITHUB_REPO) });
+      return json({ ok: true, dispatch_ready: Boolean(env.GITHUB_TOKEN && env.GITHUB_REPO && env.MEDIA) });
+    }
+    if (request.method === "GET" && url.pathname === "/api/gallery") {
+      try { return json(await gallery(env)); }
+      catch { return json({ error: "Gallery temporarily unavailable" }, 503); }
+    }
+    if (request.method === "GET" && url.pathname === "/api/spend") {
+      try {
+        const date = new Date().toISOString().slice(0, 10);
+        const records = await readRecords(env.MEDIA, `spend/${date}/`);
+        if (records.some(r => typeof r.total_usd !== "number" || !Number.isFinite(r.total_usd) || r.total_usd < 0)) {
+          throw new Error("Invalid spending record");
+        }
+        const total = records.reduce((sum, record) => sum + record.total_usd, 0);
+        if (!Number.isFinite(total) || total < 0) throw new Error("Invalid spending record");
+        return json({ date, total_usd: total, estimated: true });
+      } catch { return json({ error: "Spending records unavailable" }, 503); }
     }
     if (request.method === "POST" && url.pathname === "/api/generate") {
-      return handleGenerate(request, env);
+      try { return await handleGenerate(request, env); }
+      catch { return json({ error: "Generation temporarily unavailable; no automatic retry." }, 503); }
     }
     return json({ error: "not found" }, 404);
   },
@@ -81,40 +74,23 @@ async function handleGenerate(request, env) {
     return json({ error: `script is ${words} words; needs 40-120` }, 400);
   }
 
-  // 2. per-IP rate limit in KV
+  if (!env.GITHUB_TOKEN || !env.GITHUB_REPO || !env.MEDIA) {
+    return json({ error: "Generation is not connected yet. You can view the examples below." }, 503);
+  }
   const ip = request.headers.get("cf-connecting-ip") || "unknown";
   const limited = await rateLimited(env.RATE_KV, ip);
-  if (limited) {
-    return json({ error: `rate limit hit (${limited})` }, 429);
-  }
+  if (limited) return json({ error: `rate limit hit (${limited})` }, 429);
 
-  // 3. global daily limit — bounds total exposure even if many different IPs
-  // somehow have the access code (e.g. it leaked)
-  const globalLimited = await globalDailyLimited(env.RATE_KV);
-  if (globalLimited) {
-    return json({ error: `global daily generation limit reached (${GLOBAL_DAILY}/day) — try tomorrow` }, 429);
-  }
-
-  // 4. daily spend ceiling, with a safety margin for the accounting lag —
-  // spend.json only updates when a run *finishes*, so several runs could
-  // dispatch in the gap between "spent" being read and it catching up
-  const cap = parseFloat(env.DAILY_SPEND_CAP || "0.10");
-  const spent = await todaysSpend(env);
-  if (spent + RESERVED_PER_RUN > cap) {
-    return json(
-      { error: `daily spend ceiling reached ($${spent.toFixed(2)} of $${cap.toFixed(2)}) — try tomorrow` },
-      503,
-    );
-  }
-
-  // 5. dispatch the pipeline on GitHub Actions
-  if (!env.GITHUB_TOKEN || !env.GITHUB_REPO) {
-    return json(
-      { error: "pipeline dispatch not connected yet (GitHub repo pending)" },
-      503,
-    );
-  }
   const runId = crypto.randomUUID();
+  try {
+    if (!await reserveDay(env, runId)) {
+      return json({ error: "Daily demo allowance used. Please try tomorrow (UTC)." }, 429);
+    }
+  } catch {
+    return json({ error: "Cannot verify the spending allowance. Generation is paused." }, 503);
+  }
+  // Do not release a reservation on failure: a timed-out dispatch may have been accepted.
+  try {
   const resp = await fetch(
     `https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/generate.yml/dispatches`,
     {
@@ -132,6 +108,9 @@ async function handleGenerate(request, env) {
     return json({ error: `GitHub dispatch failed (${resp.status}): ${detail.slice(0, 200)}` }, 502);
   }
   return json({ run_id: runId });
+  } catch {
+    return json({ error: "Dispatch could not be confirmed. Today's allowance is held to avoid duplicate costs." }, 502);
+  }
 }
 
 async function rateLimited(kv, ip) {
@@ -150,27 +129,42 @@ async function rateLimited(kv, ip) {
   return null;
 }
 
-async function globalDailyLimited(kv) {
-  const key = `rl:global:${new Date().toISOString().slice(0, 10)}`;
-  const count = parseInt((await kv.get(key)) || "0", 10);
-  if (count >= GLOBAL_DAILY) return true;
-  await kv.put(key, String(count + 1), { expirationTtl: 90000 });
-  return false;
+async function reserveDay(env, runId) {
+  const cap = Number(env.DAILY_SPEND_CAP ?? "0.10");
+  if (!Number.isFinite(cap) || cap < 0) throw new Error("Invalid spending limit");
+  if (cap < RESERVED_PER_RUN) return false;
+  const date = new Date().toISOString().slice(0, 10);
+  const result = await env.MEDIA.put(`allowances/${date}.json`, JSON.stringify({
+    run_id: runId, reserved_usd: RESERVED_PER_RUN, date,
+  }), { onlyIf: { etagDoesNotMatch: "*" }, httpMetadata: { contentType: "application/json" } });
+  return result !== null;
 }
 
-async function todaysSpend(env) {
-  // spend.json: {"date": "YYYY-MM-DD", "total_usd": 0.12} — published to R2 by the pipeline
-  try {
-    const resp = await fetch(`${env.R2_PUBLIC_BASE}/spend.json`, {
-      cf: { cacheTtl: 30 },
-    });
-    if (!resp.ok) return 0; // no spend recorded yet
-    const spend = await resp.json();
-    const today = new Date().toISOString().slice(0, 10);
-    return spend.date === today ? Number(spend.total_usd) || 0 : 0;
-  } catch {
-    return 0; // fail open on read errors; the rate limit still applies
-  }
+async function readRecords(bucket, prefix) {
+  const records = [];
+  let cursor;
+  do {
+    const page = await bucket.list({ prefix, cursor });
+    for (const object of page.objects) {
+      const value = await bucket.get(object.key);
+      if (value) records.push(await value.json());
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  return records;
+}
+
+async function gallery(env) {
+  const records = await readRecords(env.MEDIA, "gallery/");
+  records.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+  const old = await env.MEDIA.get("gallery.json");
+  const legacy = old ? await old.json() : [];
+  const seen = new Set();
+  return [...records, ...legacy].filter(item => {
+    if (seen.has(item.video_key)) return false;
+    seen.add(item.video_key);
+    return true;
+  }).slice(0, 12);
 }
 
 function json(data, status = 200) {
