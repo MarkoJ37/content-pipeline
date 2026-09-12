@@ -21,7 +21,7 @@ GRADIENTS = [
 ]
 ACCENT = (255, 196, 61)
 
-_FONT_CANDIDATES = ["arialbd.ttf", "seguisb.ttf", "arial.ttf"]
+_FONT_CANDIDATES = ["arialbd.ttf", "DejaVuSans-Bold.ttf", "LiberationSans-Bold.ttf", "seguisb.ttf"]
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont:

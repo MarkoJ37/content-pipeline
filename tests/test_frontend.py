@@ -222,3 +222,12 @@ def test_api_request_preserves_empty_list(monkeypatch):
         lambda *a, **kw: _ok_bytes(b'{"success":true,"result":[]}'),
     )
     assert storage.api_request("/r2/buckets") == []
+
+
+def test_frontend_text_is_utf8_without_mojibake():
+    html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
+    assert "60\u201390 words \u2248 a 30s Reel" in html
+    for name in ("index.html", "app.js", "style.css"):
+        text = (ROOT / "frontend" / name).read_text(encoding="utf-8")
+        assert "\u00e2\u20ac" not in text
+        assert "\u00e2\u2030" not in text

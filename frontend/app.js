@@ -20,7 +20,7 @@ $("generate").addEventListener("click", async () => {
   error.hidden = true;
 
   if (words < 40 || words > 120) {
-    error.textContent = `Script is ${words} words â€” aim for 60â€“90 (about 30 seconds spoken).`;
+    error.textContent = `Script is ${words} words — aim for 60–90 (about 30 seconds spoken).`;
     error.hidden = false;
     return;
   }
@@ -45,7 +45,7 @@ $("generate").addEventListener("click", async () => {
     }
     startPolling(body.run_id);
   } catch (e) {
-    error.textContent = "Network error â€” try again.";
+    error.textContent = "Network error — try again.";
     error.hidden = false;
   } finally {
     $("generate").disabled = Boolean(activeRun) || !backendReady;
@@ -185,7 +185,7 @@ async function loadGallery() {
     $("generate").disabled = Boolean(activeRun) || !backendReady;
     if (!backendReady) {
       $("backend-status").textContent =
-        "(demo note: GitHub dispatch not connected yet â€” Generate is disabled.)";
+        "(demo note: GitHub dispatch not connected yet — Generate is disabled.)";
     }
   } catch {
     /* worker not reachable; leave footer as-is */

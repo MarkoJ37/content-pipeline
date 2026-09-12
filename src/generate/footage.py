@@ -32,7 +32,10 @@ shot says: "{spoken}"
 The search keywords were: {keywords}
 
 Below are {n} candidate clips (thumbnails), numbered 1 to {n}. Pick the one that:
-- best matches the voiceover line visually
+- best matches the actual meaning of the voiceover, not just a keyword
+- avoids trading charts, gambling, unrelated app interfaces and readable logos
+  unless explicitly requested
+- keeps the subject centered for a vertical crop and leaves the lower middle clear for captions
 - has NO identifiable faces (hands-only, over-the-shoulder, or object shots are ideal)
 - looks sharp and well-lit, not busy or cluttered
 

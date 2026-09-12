@@ -129,3 +129,31 @@ def test_ass_escapes_override_braces():
 def test_demo_script_word_counts_match_shots():
     assert sum(len(s.spoken.split()) for s in DEMO_SHOTS) == len(DEMO_SCRIPT.split())
     assert shots.MIN_SHOTS <= len(DEMO_SHOTS) <= shots.MAX_SHOTS
+
+
+def test_captions_do_not_cross_sentence_boundaries():
+    ass = assemble.build_ass(_timings_for("Start now. Stay focused."))
+    lines = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
+    assert lines[0].endswith(",Start now.")
+    assert lines[1].endswith(",Stay focused.")
+
+
+def test_captions_clear_during_silence():
+    timings = [
+        {"word": "Wait", "start": 0.0, "end": 0.4},
+        {"word": "Go", "start": 3.0, "end": 3.4},
+    ]
+    lines = [s for s in assemble.build_ass(timings).splitlines() if s.startswith("Dialogue:")]
+    assert lines[0].split(",")[2] == "0:00:00.70"
+    assert lines[1].split(",")[1] == "0:00:03.00"
+
+
+def test_long_caption_phrases_split_before_overflow():
+    ass = assemble.build_ass(_timings_for("Extraordinary opportunities ahead"))
+    lines = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
+    assert len(lines) == 2
+
+
+def test_caption_backslashes_cannot_inject_line_breaks():
+    ass = assemble.build_ass(_timings_for(r"hello\Nworld"))
+    assert r"hello\Nworld" not in ass

@@ -6,6 +6,7 @@ without touching ffmpeg.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from ..lib.media import run_ffmpeg
@@ -67,7 +68,7 @@ ASS_HEADER = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {WIDTH}
 PlayResY: {HEIGHT}
-WrapStyle: 2
+WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
@@ -80,15 +81,29 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 def build_ass(timings: list[WordTiming], words_per_chunk: int = CAPTION_WORDS_PER_CHUNK) -> str:
     """Burned-in caption track: chunks of a few words, timed to the voiceover."""
-    chunks = [
-        timings[i : i + words_per_chunk] for i in range(0, len(timings), words_per_chunk)
-    ]
+    if words_per_chunk < 1:
+        raise ValueError("words_per_chunk must be positive")
+    chunks = []
+    chunk = []
+    for word in timings:
+        if chunk and (len(chunk) >= words_per_chunk
+                      or len(" ".join(w["word"] for w in [*chunk, word])) > 24
+                      or word["start"] - chunk[-1]["end"] > 0.45):
+            chunks.append(chunk)
+            chunk = []
+        chunk.append(word)
+        if re.search(r'[.!?;:]["\')]*$', word["word"]):
+            chunks.append(chunk)
+            chunk = []
+    if chunk:
+        chunks.append(chunk)
     events = []
     for i, chunk in enumerate(chunks):
         start = chunk[0]["start"]
         # hold until the next chunk starts so captions never flicker off mid-speech
         end = chunks[i + 1][0]["start"] if i + 1 < len(chunks) else chunk[-1]["end"] + 0.3
-        text = " ".join(w["word"] for w in chunk).replace("{", "(").replace("}", ")")
+        end = min(end, chunk[-1]["end"] + 0.3)
+        text = " ".join(w["word"] for w in chunk).replace("{", "(").replace("}", ")").replace("\\", "/")
         events.append(f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Cap,,0,0,0,,{text}")
     return ASS_HEADER + "\n".join(events) + "\n"
 
@@ -197,7 +212,9 @@ def assemble_reel(
             "-map", "0:v", "-map", "1:a",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
             "-pix_fmt", "yuv420p",
+            "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
             "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
             str(out_path),
         ],
         cwd=workdir,

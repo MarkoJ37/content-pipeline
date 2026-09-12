@@ -116,7 +116,10 @@ Provide `card_text`: max 4 lines of max 18 characters, line breaks as \\n. \
 Punchy fragments, not sentences.
    Only STOCK and TEXT_CARD are supported. Never request generated video or screen recordings.
 4. Unused fields must be "" (or [] for keywords).
-5. Mix: aim for roughly 60-80% STOCK and 20-40% TEXT_CARD. Open with a \
+5. Keywords must describe concrete visible actions and objects, not abstract benefits. \
+Do not use trading charts as a metaphor for productivity or business growth. \
+Prefer neutral hands, desks and devices over unrelated branded app screens.
+6. Mix: aim for roughly 60-80% STOCK and 20-40% TEXT_CARD. Open with a \
 strong hook shot; end with the CTA."""
 
 
