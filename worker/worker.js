@@ -17,7 +17,8 @@ export default {
       });
     }
     if (request.method === "GET" && url.pathname === "/api/health") {
-      return json({ ok: true, dispatch_ready: Boolean(env.GITHUB_TOKEN && env.GITHUB_REPO && env.MEDIA) });
+      return json({ ok: true, dispatch_ready: Boolean(env.GITHUB_TOKEN && env.GITHUB_REPO && env.MEDIA),
+        export_ready: Boolean(env.EDIT_GITHUB_TOKEN && env.EDIT_GITHUB_REPO && env.MEDIA) });
     }
     if (request.method === "GET" && url.pathname === "/api/gallery") {
       try { return json(await gallery(env)); }
@@ -34,6 +35,10 @@ export default {
         if (!Number.isFinite(total) || total < 0) throw new Error("Invalid spending record");
         return json({ date, total_usd: total, estimated: true });
       } catch { return json({ error: "Spending records unavailable" }, 503); }
+    }
+    if (request.method === "POST" && url.pathname === "/api/revise") {
+      try { return await revise(request, env); }
+      catch { return json({ error: "Export could not be confirmed. Do not retry automatically." }, 503); }
     }
     if (request.method === "POST" && url.pathname === "/api/generate") {
       try { return await handleGenerate(request, env); }
@@ -172,6 +177,57 @@ function json(data, status = 200) {
     status,
     headers: { "content-type": "application/json" },
   });
+}
+
+
+
+/* Inlined into the Worker by deploy_frontend.py. Recipes contain no executable code. */
+async function revise(request, env) {
+  const raw = await request.text();
+  if (raw.length > 24000) return json({ error: "Edit request too large" }, 400);
+  let body;
+  try { body = JSON.parse(raw); } catch { return json({ error: "Invalid JSON" }, 400); }
+  if (!body || !env.ACCESS_CODE || body.access_code !== env.ACCESS_CODE) {
+    return json({ error: "Enter your access code to export" }, 403);
+  }
+  if (!env.EDIT_GITHUB_TOKEN || !env.EDIT_GITHUB_REPO || !env.MEDIA) {
+    return json({ error: "Export is not connected yet. You can save your edit locally." }, 503);
+  }
+  if ((await env.RATE_KV.get("pipeline:paused")) === "true") {
+    return json({ error: "The studio is paused" }, 503);
+  }
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(body.project_id || "")) {
+    return json({ error: "Invalid project" }, 400);
+  }
+  const object = await env.MEDIA.get(`projects/${body.project_id}/project.json`);
+  if (!object) return json({ error: "This Reel has no editable source" }, 404);
+  const project = await object.json();
+  if (!validRecipe(project, body.recipe)) return json({ error: "Invalid edit settings" }, 400);
+  const runId = crypto.randomUUID();
+  const date = new Date().toISOString().slice(0, 10);
+  // One CPU-only export per UTC day, separate from the paid generation allowance.
+  const reserved = await env.MEDIA.put(`edit-allowances/${date}.json`, JSON.stringify({ run_id: runId }),
+    { onlyIf: { etagDoesNotMatch: "*" } });
+  if (!reserved) return json({ error: "Today's edit export allowance is used. Try tomorrow (UTC)." }, 429);
+  await env.MEDIA.put(`revisions/${runId}.json`, JSON.stringify({ project_id: body.project_id, recipe: body.recipe }),
+    { httpMetadata: { contentType: "application/json" } });
+  const response = await fetch(`https://api.github.com/repos/${env.EDIT_GITHUB_REPO}/actions/workflows/revise.yml/dispatches`, {
+    method: "POST", headers: { authorization: `Bearer ${env.EDIT_GITHUB_TOKEN}`,
+      accept: "application/vnd.github+json", "user-agent": "reel-factory" },
+    body: JSON.stringify({ ref: "main", inputs: { run_id: runId } }),
+  });
+  if (response.status !== 204) return json({ error: "Export could not be started. Allowance retained to avoid duplicates." }, 502);
+  return json({ run_id: runId });
+}
+
+function validRecipe(project, recipe) {
+  if (!recipe || !Array.isArray(recipe.words) || !Array.isArray(recipe.clips)) return false;
+  if (recipe.words.length !== project.timings.length || recipe.clips.length !== project.segments.length) return false;
+  if (recipe.words.some(w => typeof w !== "string" || !w || w.length > 40 || /\s/.test(w))) return false;
+  if (recipe.clips.some(i => !Number.isInteger(i) || i < 0 || i >= project.segments.length)) return false;
+  const b = recipe.brand;
+  return Boolean(b && ["Arial", "DejaVu Sans", "DejaVu Serif"].includes(b.font)
+    && /^#[\da-f]{6}$/i.test(b.color) && [64, 76, 84].includes(b.size) && [360, 560, 800].includes(b.position));
 }
 
 const INDEX_HTML = __INDEX_HTML_JSON__;

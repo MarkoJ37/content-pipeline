@@ -5,13 +5,16 @@ const fs = require('node:fs');
 
 function browser(status, saved = null) {
   const nodes = new Map();
-  function element() {
+  function element(tag = "div") {
     return {
-      hidden: true, disabled: false, textContent: '', value: '', listeners: {},
+      tag, children: [], style: {}, hidden: true, disabled: false, textContent: '', value: '', listeners: {},
+      setAttribute() {}, scrollIntoView() {}, focus() {},
+      querySelectorAll(tag) { return this.children.flatMap(child => [
+        ...(child.tag === tag ? [child] : []), ...child.querySelectorAll(tag)]); },
       classList: { toggle() {} },
       addEventListener(name, fn) { this.listeners[name] = fn; },
       querySelector() { return this.cost ||= element(); },
-      replaceChildren() {}, append() {},
+      replaceChildren() { this.children = []; }, append(...children) { this.children.push(...children); },
     };
   }
   const get = id => {
@@ -36,6 +39,7 @@ function browser(status, saved = null) {
     }),
   });
   vm.runInContext(fs.readFileSync('frontend/app.js', 'utf8'), context);
+  vm.runInContext(fs.readFileSync('frontend/editor.js', 'utf8'), context);
   return { context, get, stored, timers };
 }
 const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -175,4 +179,71 @@ test('storage failure blocks paid dispatch', async () => {
     MEDIA: { put: async () => { throw Error('storage unavailable'); } },
   });
   assert.equal(response.status, 503);
+});
+
+
+const editProject = {
+  id: 'demo', audio_key: 'projects/demo/audio.wav',
+  timings: [{ word: 'Hello', start: 0, end: 0.5 }, { word: 'world', start: 0.5, end: 1 }],
+  segments: [{ key: 'projects/demo/one.mp4', start: 0, end: 0.5, label: 'one' },
+             { key: 'projects/demo/two.mp4', start: 0.5, end: 1, label: 'two' }],
+  brand: { font: 'Arial', color: '#ffffff', size: 76, position: 560 },
+};
+
+test('editor corrects words, replaces clips, and saves and restores a draft', async () => {
+  const app = browser({}); await flush();
+  app.context.fetch = async () => ({ ok: true, json: async () => editProject });
+  await app.context.openEditor('demo');
+  app.get('caption-editor').querySelectorAll('input')[1].value = 'friend';
+  app.get('scene-editor').querySelectorAll('select')[0].value = '1';
+  app.get('brand-color').value = '#d1ee8a';
+  app.get('save-edit').listeners.click();
+  const draft = JSON.parse(app.stored.get('reel-edit:demo'));
+  assert.deepEqual(draft.words, ['Hello', 'friend']);
+  assert.deepEqual(draft.clips.map(Number), [1, 1]);
+  assert.equal(draft.brand.color, '#d1ee8a');
+  await app.context.openEditor('demo');
+  assert.equal(app.get('caption-editor').querySelectorAll('input')[1].value, 'friend');
+  assert.equal(editProject.timings[1].word, 'world');
+});
+
+test('brand presets roundtrip in browser storage', async () => {
+  const app = browser({}); await flush();
+  app.context.showBrand(editProject.brand);
+  app.get('brand-font').value = 'DejaVu Serif';
+  app.get('save-brand').listeners.click();
+  app.get('brand-font').value = 'Arial';
+  app.get('load-brand').listeners.click();
+  assert.equal(app.get('brand-font').value, 'DejaVu Serif');
+});
+
+test('worker revision validation rejects invalid words and clip indices', () => {
+  const context = workerContext();
+  const recipe = { words: ['Hello', 'friend'], clips: [1, 0], brand: editProject.brand };
+  assert.equal(context.validRecipe(editProject, recipe), true);
+  assert.equal(context.validRecipe(editProject, { ...recipe, clips: [99, 0] }), false);
+  assert.equal(context.validRecipe(editProject, { ...recipe, words: ['two words', 'friend'] }), false);
+});
+
+test('edit exports have a separate atomic allowance and use the revision workflow', async () => {
+  const context = workerContext();
+  let writes = new Map(), calls = [];
+  context.fetch = async (url, options) => { calls.push([url, JSON.parse(options.body)]); return { status: 204 }; };
+  const env = { ACCESS_CODE: 'test', EDIT_GITHUB_TOKEN: 'edit-only', EDIT_GITHUB_REPO: 'test/repo',
+    RATE_KV: { get: async () => null }, MEDIA: {
+      get: async () => ({ json: async () => editProject }),
+      put: async (key, value, options) => {
+        if (options.onlyIf && writes.has(key)) return null;
+        writes.set(key, value); return {};
+      },
+    } };
+  const request = { text: async () => JSON.stringify({ access_code: 'test', project_id: 'demo',
+    recipe: { words: ['Hello', 'friend'], clips: [1, 0], brand: editProject.brand } }) };
+  assert.equal((await context.revise(request, env)).status, 200);
+  assert.equal((await context.revise(request, env)).status, 429);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0][0], /revise.yml/);
+  assert.equal([...writes.keys()].some(key => key.startsWith('allowances/')), false);
+  const stored = [...writes].find(([key]) => key.startsWith('revisions/'))[1];
+  assert.equal(stored.includes('access_code'), false);
 });

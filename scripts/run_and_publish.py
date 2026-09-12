@@ -33,6 +33,7 @@ from src.generate.footage import resolve_stock_shots
 from src.generate.shots import generate_shot_list, validate_shot_list
 from src.lib import align, spend, storage, tts
 from src.lib.media import find_ffmpeg
+from src.lib.projects import save_project
 from src.review.qc import review_reel
 
 STAGE_ORDER = ["shotlist", "voice", "align", "footage", "assemble", "review"]
@@ -53,8 +54,8 @@ class StatusPublisher:
         self.stages[name] = {"done": True, "cost_usd": round(cost_usd, 4)}
         self._publish("running")
 
-    def done(self, video_key: str) -> None:
-        self._publish("done", video_key=video_key)
+    def done(self, video_key: str, project_id: str | None = None) -> None:
+        self._publish("done", video_key=video_key, project_id=project_id)
 
     def failed(self, failed_stage: str, error: str) -> None:
         self._publish("failed", failed_stage=failed_stage, error=error[:500])
@@ -69,12 +70,16 @@ class StatusPublisher:
         )
 
 
-def update_gallery(domain: str, video_key: str, title: str, cost_usd: float) -> None:
+def update_gallery(
+    domain: str, video_key: str, title: str, cost_usd: float, project_id: str | None = None,
+) -> None:
     """One object per video avoids read-modify-write races between runners."""
     item = {
         "title": title, "video_key": video_key, "cost_usd": round(cost_usd, 4),
         "created_at": datetime.now(UTC).isoformat(),
     }
+    if project_id:
+        item["project_id"] = project_id
     storage.upload(
         f"gallery/{Path(video_key).stem}.json", json.dumps(item).encode(),
         content_type="application/json",
@@ -185,6 +190,7 @@ def main(argv: list[str] | None = None) -> int:
 
         # 6. review
         current_stage = "review"
+        save_project(name, timings, boundaries, shots, audio_path, workdir)
         status.stage_started(current_stage)
         cost0 = spend.total_spend()
         review = review_reel(out, script, boundaries[-1][1], workdir)
@@ -192,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
         if not review.passed:
             print("review: FAILED —", "; ".join(review.issues))
 
-            status._publish("needs_review", issues=review.issues)
+            status._publish("needs_review", issues=review.issues, project_id=name)
             update_daily_spend(name)
             return 2
 
@@ -201,9 +207,9 @@ def main(argv: list[str] | None = None) -> int:
         video_key = f"videos/{name}.mp4"
         storage.upload(video_key, out, content_type="video/mp4")
         title = script[:60] + ("..." if len(script) > 60 else "")
-        update_gallery(domain, video_key, title, spend.total_spend())
+        update_gallery(domain, video_key, title, spend.total_spend(), project_id=name)
         update_daily_spend(name)
-        status.done(video_key)
+        status.done(video_key, project_id=name)
         print(f"published: https://{domain}/{video_key}")
         print(f"total spend (all runs): ${spend.total_spend():.4f}")
         return 0 if review.passed else 2

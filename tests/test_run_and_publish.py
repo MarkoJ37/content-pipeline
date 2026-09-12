@@ -124,6 +124,7 @@ def test_failed_review_never_publishes_video_or_gallery(tmp_path, monkeypatch, f
     script = tmp_path / "script.md"
     script.write_text("word " * 60)
     monkeypatch.setattr(rap, "find_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(rap, "save_project", lambda *args: None)
     provider = SimpleNamespace(name="test", synthesize=lambda text: (b"audio", [{}]))
     monkeypatch.setattr(rap.tts, "get_tts_provider", lambda name: provider)
     monkeypatch.setattr(rap.tts, "wav_duration_seconds", lambda audio: 30)

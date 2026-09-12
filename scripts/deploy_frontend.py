@@ -36,6 +36,7 @@ def build_worker_source(
     html = (frontend_dir / "index.html").read_text(encoding="utf-8")
     css = (frontend_dir / "style.css").read_text(encoding="utf-8")
     js = (frontend_dir / "app.js").read_text(encoding="utf-8")
+    js += "\n" + (frontend_dir / "editor.js").read_text(encoding="utf-8")
     js = js.replace("__R2_PUBLIC_BASE__", r2_public_base)
     html = html.replace("__INLINE_CSS__", css).replace("__INLINE_JS__", js)
     worker = worker_template.read_text(encoding="utf-8")
@@ -180,6 +181,13 @@ def main(argv: list[str] | None = None) -> int:
         dispatch = "connected"
     else:
         dispatch = "NOT connected (set GITHUB_TOKEN + GITHUB_REPO and redeploy)"
+    if os.environ.get("EDIT_GITHUB_TOKEN") and os.environ.get("EDIT_GITHUB_REPO"):
+        bindings.extend([
+            {"type": "secret_text", "name": "EDIT_GITHUB_TOKEN",
+             "text": os.environ["EDIT_GITHUB_TOKEN"]},
+            {"type": "plain_text", "name": "EDIT_GITHUB_REPO",
+             "text": os.environ["EDIT_GITHUB_REPO"]},
+        ])
     upload_worker(source, bindings)
 
     print("5/5 workers.dev subdomain")

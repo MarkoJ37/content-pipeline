@@ -79,7 +79,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
 
-def build_ass(timings: list[WordTiming], words_per_chunk: int = CAPTION_WORDS_PER_CHUNK) -> str:
+def build_ass(
+    timings: list[WordTiming], words_per_chunk: int = CAPTION_WORDS_PER_CHUNK,
+    brand: dict | None = None,
+) -> str:
     """Burned-in caption track: chunks of a few words, timed to the voiceover."""
     if words_per_chunk < 1:
         raise ValueError("words_per_chunk must be positive")
@@ -105,7 +108,16 @@ def build_ass(timings: list[WordTiming], words_per_chunk: int = CAPTION_WORDS_PE
         end = min(end, chunk[-1]["end"] + 0.3)
         text = " ".join(w["word"] for w in chunk).replace("{", "(").replace("}", ")").replace("\\", "/")
         events.append(f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Cap,,0,0,0,,{text}")
-    return ASS_HEADER + "\n".join(events) + "\n"
+    header = ASS_HEADER
+    if brand is not None:
+        from ..lib.projects import validate_recipe
+        validate_recipe({"timings": timings, "segments": []},
+                        {"words": [t["word"] for t in timings], "clips": [], "brand": brand})
+        color = brand["color"].lstrip("#")
+        ass_color = f"&H00{color[4:6]}{color[2:4]}{color[0:2]}"
+        header = header.replace("Cap,Arial,84,&H00FFFFFF", f"Cap,{brand['font']},{brand['size']},{ass_color}")
+        header = header.replace(",90,90,560,1", f",90,90,{brand['position']},1")
+    return header + "\n".join(events) + "\n"
 
 
 ENCODE_ARGS = [

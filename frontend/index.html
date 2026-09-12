@@ -47,6 +47,7 @@
     </ol>
     <p id="progress-note" role="status" class="hint"></p>
     <button id="resume" type="button" hidden>Check again</button>
+    <button id="edit-result" type="button" hidden>Edit saved project</button>
   </section>
 
   <section id="result" class="card" hidden>
@@ -61,6 +62,33 @@
     <p id="gallery-note" class="hint" role="status">Loading the screening room...</p>
   </section>
 
+  <section id="editor" class="card" hidden>
+    <p class="eyebrow">THE EDIT DESK</p>
+    <h2>Make it yours.</h2>
+    <p class="section-copy">Swap scenes using this project's saved clips, correct timed words, and style your captions. The voiceover stays unchanged. No new AI calls.</p>
+    <p id="edit-message" class="availability" role="status"></p>
+    <details open><summary>1. Replace clips</summary>
+      <p class="hint">Choose footage from this Reel's saved scenes. Shorter clips loop to fill the original scene duration.</p>
+      <div id="scene-editor" class="scene-editor"></div>
+    </details>
+    <details><summary>2. Correct captions</summary>
+      <p class="hint">One word per field preserves the existing timing. Changes affect on-screen captions, not spoken audio.</p>
+      <div id="caption-editor" class="caption-editor"></div>
+    </details>
+    <details open><summary>3. Caption brand settings</summary>
+      <div id="brand-settings" class="brand-settings">
+        <label>Font<select id="brand-font"><option>Arial</option><option>DejaVu Sans</option><option>DejaVu Serif</option></select></label>
+        <label>Text color<input id="brand-color" type="color" value="#ffffff"></label>
+        <label>Text size<select id="brand-size"><option value="64">Small</option><option value="76" selected>Medium</option><option value="84">Large</option></select></label>
+        <label>Position<select id="brand-position"><option value="360">Lower</option><option value="560" selected>Middle-low</option><option value="800">Center</option></select></label>
+      </div>
+      <div class="brand-preview-frame"><span id="brand-preview">Your words, your style.</span></div>
+      <p class="hint">Style preview only. Existing text-card designs are preserved.</p>
+      <div class="edit-actions"><button id="save-brand" type="button">Save brand preset</button><button id="load-brand" type="button">Apply saved preset</button></div>
+    </details>
+    <div class="edit-actions"><button id="save-edit" type="button" disabled>Save draft locally</button><label>Access code<input id="edit-access-code" type="password" autocomplete="off"></label><button id="export-edit" type="button" disabled>Export edited Reel</button></div>
+    <p id="export-status" class="hint">One edit export per UTC day. Uses saved media and local rendering; no new AI generation.</p>
+  </section>
   <footer><a class="brand" href="#">reel factory<span>.</span></a><p>Less production. More possibility.</p><a href="#generator">Back to the creative desk &uarr;</a></footer>
 </main>
 <script>__INLINE_JS__</script>

@@ -57,6 +57,7 @@ const STAGES = ["shotlist", "voice", "align", "footage", "assemble", "review"];
 let pollTimer = null;
 let activeRun = null;
 let backendReady = true;
+let exportReady = false;
 const RUN_KEY = "reel-factory-run";
 const MAX_WAIT_MS = 25 * 60 * 1000;
 
@@ -71,9 +72,11 @@ function startPolling(runId, startedAt = Date.now()) {
   activeRun = { runId, startedAt };
   remember(activeRun);
   $("generate").disabled = true;
+  $("export-edit").disabled = true;
   $("progress").hidden = false;
   $("result").hidden = true;
   $("resume").hidden = true;
+  $("edit-result").hidden = true;
   $("cost").textContent = "$0.000";
   $("progress-note").textContent = "Waiting to start. Most Reels take 2-5 minutes. You can refresh this page safely.";
   setStages({});
@@ -85,6 +88,7 @@ function finishRun() {
   activeRun = null;
   remember(null);
   $("generate").disabled = !backendReady;
+  $("export-edit").disabled = !exportReady;
 }
 
 async function poll(run) {
@@ -102,6 +106,10 @@ async function poll(run) {
       const status = await resp.json();
       if (activeRun !== run) return;
       setStages(status.stages || {});
+      if (status.project_id) {
+        $("edit-result").hidden = false;
+        $("edit-result").onclick = () => openEditor(status.project_id);
+      }
       $("cost").textContent = `$${Number(status.cost_usd || 0).toFixed(3)}`;
       if (status.state === "done") {
         $("final-cost").textContent = `$${Number(status.cost_usd || 0).toFixed(3)}`;
@@ -170,6 +178,13 @@ async function loadGallery() {
     cost.className = "cost";
     cost.textContent = `EST. AI COST / $${(item.cost_usd || 0).toFixed(3)}`;
     meta.append(title, cost);
+    if (item.project_id) {
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.textContent = "Edit this Reel";
+      edit.addEventListener("click", () => openEditor(item.project_id));
+      meta.append(edit);
+    }
     div.append(video, meta);
     gallery.append(div);
   }
@@ -182,6 +197,10 @@ async function loadGallery() {
     const resp = await fetch("/api/health");
     const body = await resp.json();
     backendReady = Boolean(body.dispatch_ready);
+    exportReady = Boolean(body.export_ready);
+    $("export-status").textContent = exportReady
+      ? "Export ready. One edit export per UTC day; no new AI generation."
+      : "Preview mode: edit and save drafts locally. Export is not connected yet.";
     $("generate").disabled = Boolean(activeRun) || !backendReady;
     if (!backendReady) {
       $("backend-status").textContent = "Preview mode. Explore the examples below; generation is currently unavailable.";

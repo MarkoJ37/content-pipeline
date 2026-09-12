@@ -1,0 +1,30 @@
+name: revise
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        required: true
+        description: Saved edit request ID
+permissions:
+  contents: read
+concurrency:
+  group: revise-${{ inputs.run_id }}
+  cancel-in-progress: false
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-liberation
+      - run: pip install pillow
+      - name: Render with existing media (no AI credentials)
+        env:
+          RUN_ID: ${{ inputs.run_id }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_PUBLIC_DOMAIN: ${{ vars.R2_PUBLIC_DOMAIN }}
+        run: python -m scripts.render_revision --run-id "$RUN_ID"
