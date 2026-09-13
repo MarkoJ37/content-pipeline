@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -80,11 +81,18 @@ def probe_streams(mp4: str | Path) -> dict:
 
     result = subprocess.run(
         [
-            find_ffprobe(), "-v", "error", "-show_entries",
+            find_ffprobe(),
+            "-v",
+            "error",
+            "-show_entries",
             "stream=codec_type,width,height,avg_frame_rate,duration",
-            "-of", "json", str(mp4),
+            "-of",
+            "json",
+            str(mp4),
         ],
-        capture_output=True, text=True, timeout=120,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     if result.returncode != 0:
         raise RuntimeError(f"ffprobe failed: {result.stderr.strip()}")
@@ -121,6 +129,53 @@ def technical_issues(
         ["-i", str(mp4), "-vf", f"blackdetect=d={BLACK_MIN_SECONDS}:pix_th=0.10", "-an"]
     )
     issues.extend(parse_blackdetect(stderr))
+    if audio is not None:
+        analysis = run_ffmpeg_analysis(
+            ["-i", str(mp4), "-vn", "-af", "volumedetect,silencedetect=noise=-45dB:d=1.5"]
+        )
+        issues.extend(parse_audio_analysis(analysis, duration))
+    return issues
+
+
+def parse_audio_analysis(stderr: str, duration: float) -> list[str]:
+    issues = []
+    peak = re.search(r"max_volume:\s*(-?inf|[-\d.]+) dB", stderr)
+    if peak and float(peak.group(1)) < -45:
+        issues.append("voiceover is silent or too quiet")
+    for match in re.finditer(
+        r"silence_end:\s*([\d.]+)\s*\|\s*silence_duration:\s*([\d.]+)", stderr
+    ):
+        end, length = map(float, match.groups())
+        if length >= 1.5 and end - length > 0.5 and end < duration - 0.5:
+            issues.append(f"long silence in voiceover near {end - length:.1f}s")
+    return issues
+
+
+def timeline_issues(timings, boundaries, audio_duration):
+    """Local timing gate. No transcript API or visual AI calls."""
+    issues = []
+    previous = 0.0
+    for i, word in enumerate(timings):
+        start, end = word["start"], word["end"]
+        if (
+            not all(math.isfinite(t) for t in (start, end))
+            or start < 0
+            or end <= start
+            or start < previous - 0.03
+        ):
+            issues.append(f"invalid caption timing at word {i + 1}")
+        if end > audio_duration + 0.15:
+            issues.append(f"caption extends past voiceover at word {i + 1}")
+        if start - previous > 1.5:
+            issues.append(f"caption timing gap near {start:.1f}s")
+        previous = end
+    previous = 0.0
+    for i, (start, end) in enumerate(boundaries):
+        if not all(math.isfinite(t) for t in (start, end)) or abs(start - previous) > 0.05:
+            issues.append(f"scene timeline gap or overlap at scene {i + 1}")
+        if end - start < 0.7 or end - start > 7:
+            issues.append(f"scene {i + 1} has an awkward duration ({end - start:.1f}s)")
+        previous = end
     return issues
 
 
@@ -147,8 +202,19 @@ def extract_frames(mp4: str | Path, duration: float, workdir: str | Path) -> lis
     for i, ts in enumerate(frame_timestamps(duration)):
         out = frame_dir / f"frame_{i}.jpg"
         run_ffmpeg(
-            ["-ss", f"{ts}", "-i", str(mp4), "-frames:v", "1",
-             "-vf", f"scale={FRAME_WIDTH}:-2", "-q:v", "4", str(out)]
+            [
+                "-ss",
+                f"{ts}",
+                "-i",
+                str(mp4),
+                "-frames:v",
+                "1",
+                "-vf",
+                f"scale={FRAME_WIDTH}:-2",
+                "-q:v",
+                "4",
+                str(out),
+            ]
         )
         frames.append(out)
     return frames
@@ -198,10 +264,18 @@ def review_reel(
     script: str,
     expected_duration: float,
     workdir: str | Path,
+    *,
+    timings=None,
+    boundaries=None,
+    local_only=False,
 ) -> ReviewResult:
     """Free technical checks first; Claude vision only if they pass."""
     issues = technical_issues(mp4, expected_duration)
+    if timings is not None and boundaries is not None:
+        issues.extend(timeline_issues(timings, boundaries, expected_duration))
     if issues:
         return ReviewResult(passed=False, issues=issues)  # don't pay to confirm a broken file
+    if local_only:
+        return ReviewResult(passed=True)
     frames = extract_frames(mp4, expected_duration, workdir)
     return vision_review(frames, script)

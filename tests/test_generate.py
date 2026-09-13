@@ -69,23 +69,16 @@ def test_boundaries_start_at_first_word_of_each_shot():
     assert bounds[1][0] == timings[words_before_second_shot]["start"]
 
 
-def test_boundaries_scale_when_whisper_word_count_differs():
-    timings = _timings_for(DEMO_SCRIPT)[:-3]  # whisper merged a few words
-    bounds = assemble.shot_boundaries(DEMO_SCRIPT, DEMO_SHOTS, timings, timings[-1]["end"])
-
-    assert len(bounds) == len(DEMO_SHOTS)
-    starts = [b[0] for b in bounds]
-    assert starts == sorted(starts)
+def test_boundaries_reject_missing_words():
+    timings = _timings_for(DEMO_SCRIPT)[:-3]
+    with pytest.raises(ValueError, match="must match"):
+        assemble.shot_boundaries(DEMO_SCRIPT, DEMO_SHOTS, timings, timings[-1]["end"])
 
 
-def test_boundaries_enforce_min_shot_duration():
-    # all words crammed into the same instant -> durations still positive
-    words = DEMO_SCRIPT.split()
-    timings = [{"word": w, "start": 0.0, "end": 0.05} for w in words]
-    bounds = assemble.shot_boundaries(DEMO_SCRIPT, DEMO_SHOTS, timings, 0.1)
-
-    for start, end in bounds:
-        assert end - start >= assemble.MIN_SHOT_SECONDS - 1e-9
+def test_boundaries_reject_overlapping_word_times():
+    timings = [{"word": w, "start": 0.0, "end": 0.05} for w in DEMO_SCRIPT.split()]
+    with pytest.raises(ValueError, match="must match"):
+        assemble.shot_boundaries(DEMO_SCRIPT, DEMO_SHOTS, timings, 0.1)
 
 
 def test_boundaries_reject_mismatched_partition():

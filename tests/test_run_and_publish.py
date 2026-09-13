@@ -135,7 +135,7 @@ def test_failed_review_never_publishes_video_or_gallery(tmp_path, monkeypatch, f
     monkeypatch.setattr(rap, "assemble_reel", lambda *a, **kw: tmp_path / "video.mp4")
     monkeypatch.setattr(rap, "shot_boundaries", lambda *a: [(0, 30)])
     monkeypatch.setattr(
-        rap, "review_reel", lambda *a: SimpleNamespace(passed=False, issues=["black frames"])
+        rap, "review_reel", lambda *a, **kw: SimpleNamespace(passed=False, issues=["black frames"])
     )
     assert rap.main(["--script", str(script), "--run-id", "test-run"]) == 2
     body = json.loads(fake_upload["runs/test-run/status.json"])

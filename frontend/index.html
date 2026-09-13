@@ -8,7 +8,7 @@
 </head>
 <body>
 <main>
-  <nav class="navigation" aria-label="Main navigation"><a class="brand" href="#">reel factory<span>.</span></a><a href="#gallery-section">The screening room &nearr;</a></nav>
+  <nav class="navigation" aria-label="Main navigation"><a class="brand" href="#">reel factory<span>.</span></a><a href="#gallery-section">The screening room &nearr;</a><a href="https://markoj37.github.io/zerotostore/tools/reel-studio.html">ZeroToStore &nearr;</a></nav>
   <header class="hero">
     <div><p class="eyebrow">YOUR WORDS. READY FOR THE FEED.</p><h1>Small budget.<br><em>Big presence.</em></h1><p class="tagline">Turn a good idea into a Reel worth watching.<br>Voice, visuals, captions. One little studio.</p><a class="text-link" href="#generator">Make something good &searr;</a></div>
     <div class="hero-art" aria-label="Illustrated example of a Reel title card"><div class="orbit"></div><div class="reel-poster"><span class="poster-label">THE DAILY RESET &nbsp; / &nbsp; 01</span><div class="poster-type">Less<br>scroll.<br><i>More<br>spark.</i></div><span class="poster-label">A little idea. A whole new perspective.</span></div><span class="art-note">An idea looks good on you.</span></div>
@@ -69,6 +69,8 @@
     <p id="edit-message" class="availability" role="status"></p>
     <details open><summary>1. Replace clips</summary>
       <p class="hint">Choose footage from this Reel's saved scenes. Shorter clips loop to fill the original scene duration.</p>
+      <p class="helper">Add your own product footage or screenshots. Uploaded media is public on this shared demo. MP4, PNG or JPEG, up to 20 MB; eight uploads per day across the studio.</p>
+      <label>Add media<input id="upload-media" type="file" accept="video/mp4,image/png,image/jpeg"></label><button id="upload-asset" type="button">Upload selected file</button>
       <div id="scene-editor" class="scene-editor"></div>
     </details>
     <details><summary>2. Correct captions</summary>
@@ -76,9 +78,13 @@
       <div id="caption-editor" class="caption-editor"></div>
     </details>
     <details open><summary>3. Caption brand settings</summary>
+      <label>Logo (optional uploaded image)<select id="brand-logo"><option value="">No logo</option></select></label>
       <div id="brand-settings" class="brand-settings">
         <label>Font<select id="brand-font"><option>Arial</option><option>DejaVu Sans</option><option>DejaVu Serif</option></select></label>
         <label>Text color<input id="brand-color" type="color" value="#ffffff"></label>
+        <label>Card background<input id="brand-background" type="color" value="#15231d"></label>
+        <label>Accent<input id="brand-accent" type="color" value="#d1ee8a"></label>
+        <label>Card text<input id="brand-card_color" type="color" value="#ffffff"></label>
         <label>Text size<select id="brand-size"><option value="64">Small</option><option value="76" selected>Medium</option><option value="84">Large</option></select></label>
         <label>Position<select id="brand-position"><option value="360">Lower</option><option value="560" selected>Middle-low</option><option value="800">Center</option></select></label>
       </div>

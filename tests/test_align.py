@@ -108,16 +108,15 @@ def test_align_retries_without_prompt_when_conditioning_collapses(audio_file, mo
     assert len(timings) == 4
 
 
-def test_align_keeps_prompted_result_when_it_is_closer(audio_file, monkeypatch):
+def test_align_rejects_both_incomplete_attempts(audio_file, monkeypatch):
     # prompted attempt is off but the unprompted retry is even worse
     close = [SimpleNamespace(words=[_word(" one", 0.0, 0.2), _word(" two", 0.2, 0.4)])]
     worse = [SimpleNamespace(words=[_word(" x", 0.0, 0.1)])]
     model = FakeModel(close, unprompted_segments=worse)
     monkeypatch.setattr(align, "_load_model", lambda size: model)
 
-    timings = align.align(audio_file, "one two three four five six")
-
-    assert [t["word"] for t in timings] == ["one", "two"]
+    with pytest.raises(RuntimeError, match="needs review"):
+        align.align(audio_file, "one two three four five six")
 
 
 # -- substitute_script_words ---------------------------------------------------
@@ -136,7 +135,8 @@ def test_substitution_uses_exact_script_words_when_counts_match():
 
 def test_substitution_is_skipped_on_count_mismatch():
     timings = [{"word": "hello", "start": 0.0, "end": 0.3}]
-    assert align.substitute_script_words(timings, "hello there friend") == timings
+    with pytest.raises(ValueError, match="cannot locate"):
+        align.substitute_script_words(timings, "hello there friend")
 
 
 # -- check_alignment ----------------------------------------------------------

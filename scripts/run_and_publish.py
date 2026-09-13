@@ -193,7 +193,8 @@ def main(argv: list[str] | None = None) -> int:
         save_project(name, timings, boundaries, shots, audio_path, workdir)
         status.stage_started(current_stage)
         cost0 = spend.total_spend()
-        review = review_reel(out, script, boundaries[-1][1], workdir)
+        review = review_reel(out, script, boundaries[-1][1], workdir,
+                             timings=timings, boundaries=boundaries)
         status.stage_done("review", spend.total_spend() - cost0)
         if not review.passed:
             print("review: FAILED —", "; ".join(review.issues))

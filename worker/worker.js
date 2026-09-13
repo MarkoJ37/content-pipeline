@@ -36,6 +36,10 @@ export default {
         return json({ date, total_usd: total, estimated: true });
       } catch { return json({ error: "Spending records unavailable" }, 503); }
     }
+    if (request.method === "POST" && url.pathname === "/api/assets") {
+      try { return await uploadAsset(request, env); }
+      catch { return json({ error: "Upload unavailable. Try again later." }, 503); }
+    }
     if (request.method === "POST" && url.pathname === "/api/revise") {
       try { return await revise(request, env); }
       catch { return json({ error: "Export could not be confirmed. Do not retry automatically." }, 503); }
@@ -224,10 +228,54 @@ function validRecipe(project, recipe) {
   if (!recipe || !Array.isArray(recipe.words) || !Array.isArray(recipe.clips)) return false;
   if (recipe.words.length !== project.timings.length || recipe.clips.length !== project.segments.length) return false;
   if (recipe.words.some(w => typeof w !== "string" || !w || w.length > 40 || /\s/.test(w))) return false;
-  if (recipe.clips.some(i => !Number.isInteger(i) || i < 0 || i >= project.segments.length)) return false;
+  const uploads = recipe.uploads || [];
+  if (!Array.isArray(uploads) || uploads.length > 8 || uploads.some(a => !a
+    || !/^projects\/uploads\/[a-f0-9-]{36}\.(mp4|png|jpg)$/.test(a.key)
+    || !["image", "video"].includes(a.kind) || (a.kind === "video") !== a.key.endsWith(".mp4"))) return false;
+  if (recipe.clips.some(i => !Number.isInteger(i) || i < 0 || i >= (project.sources || project.segments).length + uploads.length)) return false;
+  if (recipe.logo_key && ![...(project.sources || []), ...uploads].some(a => a.key === recipe.logo_key && a.kind === "image")) return false;
   const b = recipe.brand;
   return Boolean(b && ["Arial", "DejaVu Sans", "DejaVu Serif"].includes(b.font)
+    && ["background", "accent", "card_color"].every(k => b[k] === undefined || /^#[\da-f]{6}$/i.test(b[k]))
     && /^#[\da-f]{6}$/i.test(b.color) && [64, 76, 84].includes(b.size) && [360, 560, 800].includes(b.position));
+}
+
+async function uploadAsset(request, env) {
+  if (!env.ACCESS_CODE || request.headers.get("x-access-code") !== env.ACCESS_CODE)
+    return json({ error: "Enter your access code before uploading" }, 403);
+  if (!env.MEDIA || !env.RATE_KV || await env.RATE_KV.get("pipeline:paused") === "true")
+    return json({ error: "Uploads unavailable" }, 503);
+  const type = request.headers.get("content-type");
+  const ext = { "video/mp4": "mp4", "image/png": "png", "image/jpeg": "jpg" }[type];
+  if (!ext) return json({ error: "Use MP4, PNG or JPEG" }, 400);
+  const limit = 20 * 1024 * 1024;
+  if (Number(request.headers.get("content-length")) > limit || !request.body)
+    return json({ error: "Maximum file size is 20 MB" }, 413);
+  const reader = request.body.getReader();
+  const chunks = []; let size = 0;
+  while (true) {
+    const { done, value } = await reader.read(); if (done) break;
+    size += value.length;
+    if (size > limit) { await reader.cancel(); return json({ error: "Maximum file size is 20 MB" }, 413); }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size); let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  const valid = ext === "mp4" ? size > 12 && String.fromCharCode(...bytes.slice(4, 8)) === "ftyp"
+    : ext === "png" ? [137,80,78,71,13,10,26,10].every((v,i) => bytes[i] === v)
+    : bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
+  if (!valid) return json({ error: "File content does not match its format" }, 400);
+  const day = new Date().toISOString().slice(0, 10);
+  let reserved = false;
+  for (let slot = 0; slot < 8; slot++) {
+    if (await env.MEDIA.put(`upload-allowances/${day}/${slot}`, "reserved", { onlyIf: { etagDoesNotMatch: "*" } })) {
+      reserved = true; break;
+    }
+  }
+  if (!reserved) return json({ error: "Today's eight upload slots are used. Try tomorrow (UTC)." }, 429);
+  const key = `projects/uploads/${crypto.randomUUID()}.${ext}`;
+  await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: type } });
+  return json({ key, kind: ext === "mp4" ? "video" : "image", label: "Uploaded media" });
 }
 
 const INDEX_HTML = __INDEX_HTML_JSON__;

@@ -247,3 +247,23 @@ test('edit exports have a separate atomic allowance and use the revision workflo
   const stored = [...writes].find(([key]) => key.startsWith('revisions/'))[1];
   assert.equal(stored.includes('access_code'), false);
 });
+
+
+test('uploads require authorization and a supported file signature', async () => {
+  const context = workerContext();
+  const env = { ACCESS_CODE: 'test', RATE_KV: {get: async () => null}, MEDIA: {put: async () => {throw Error('must not write');}} };
+  assert.equal((await context.uploadAsset(new Request('https://example.test/api/assets', {method: 'POST', body: 'invalid'}), env)).status, 403);
+  assert.equal((await context.uploadAsset(new Request('https://example.test/api/assets', {method: 'POST', headers: {'x-access-code':'test','content-type':'image/png'}, body: 'invalid'}), env)).status, 400);
+});
+
+test('uploads have an atomic eight-file daily allowance', async () => {
+  const context = workerContext(); const writes = new Map();
+  const env = {ACCESS_CODE: 'test', RATE_KV: {get: async () => null}, MEDIA: {put: async (key, data, options) => {
+    if (options.onlyIf && writes.has(key)) return null;
+    writes.set(key, data); return {};
+  }}};
+  const request = () => new Request('https://example.test/api/assets', {method:'POST', headers:{'x-access-code':'test','content-type':'image/png'}, body: new Uint8Array([137,80,78,71,13,10,26,10,0])});
+  const results = await Promise.all(Array.from({length:10}, () => context.uploadAsset(request(), env)));
+  assert.equal(results.filter(r => r.status === 200).length, 8);
+  assert.equal(results.filter(r => r.status === 429).length, 2);
+});

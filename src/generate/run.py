@@ -135,7 +135,8 @@ def main(argv: list[str] | None = None) -> int:
           f"{out.stat().st_size / 1e6:.1f} MB")
 
     # 7. review — technical checks free, then Claude vision QC
-    review = review_reel(out, script, boundaries[-1][1], workdir)
+    review = review_reel(out, script, boundaries[-1][1], workdir,
+                             timings=timings, boundaries=boundaries)
     (workdir / "review.json").write_text(review.to_json(), encoding="utf-8")
     if review.passed:
         print("review: PASSED")

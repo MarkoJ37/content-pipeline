@@ -10,6 +10,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+from ..lib import brand as branding
+
 CARD_W, CARD_H = 1350, 2400
 
 # Dark, brand-neutral gradients cycled per shot so consecutive cards differ.
@@ -55,12 +57,41 @@ def _fit_font(
     return _load_font(40)
 
 
-def render_card(text: str, index: int, out_path: str | Path) -> Path:
+def render_card(text: str, index: int, out_path: str | Path, brand: dict | None = None) -> Path:
     """Render one card. `text` uses \\n for author-controlled line breaks."""
-    img = _gradient(index)
+    style = branding.validate(brand)
+    img = Image.new("RGB", (CARD_W, CARD_H), style["background"]) if brand else _gradient(index)
     draw = ImageDraw.Draw(img)
     lines = [line for line in text.split("\n") if line.strip()]
-    font = _fit_font(draw, lines, max_width=CARD_W - 240)
+    if not lines:
+        raise ValueError("Text card cannot be empty")
+    # Wrap long copy by measured width and reserve room for a lower caption-safe area.
+    size = 150
+    while True:
+        font = branding.font(style["font"], size)
+        wrapped = []
+        for line in lines:
+            current = ""
+            for word in line.split():
+                if draw.textlength(word, font=font) > CARD_W - 300:
+                    current = None
+                    break
+                candidate = f"{current} {word}".strip()
+                if current and draw.textlength(candidate, font=font) > CARD_W - 300:
+                    wrapped.append(current)
+                    current = word
+                else:
+                    current = candidate
+            if current is None:
+                break
+            if current:
+                wrapped.append(current)
+        if current is not None and len(wrapped) <= 5:
+            lines = wrapped
+            break
+        size -= 10
+        if size < 60:
+            raise ValueError("Text card has too much copy; shorten it")
 
     line_height = round(font.size * 1.25)
     block_height = line_height * len(lines)
@@ -72,7 +103,7 @@ def render_card(text: str, index: int, out_path: str | Path) -> Path:
             ((CARD_W - width) / 2, y),
             line,
             font=font,
-            fill=(255, 255, 255),
+            fill=style["card_color"],
             stroke_width=2,
             stroke_fill=(0, 0, 0),
         )
@@ -83,7 +114,7 @@ def render_card(text: str, index: int, out_path: str | Path) -> Path:
     draw.rounded_rectangle(
         [(CARD_W - bar_w) // 2, bar_y, (CARD_W + bar_w) // 2, bar_y + 14],
         radius=7,
-        fill=ACCENT,
+        fill=style["accent"],
     )
 
     out_path = Path(out_path)

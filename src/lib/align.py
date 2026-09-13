@@ -12,6 +12,9 @@ from character counts.
 
 from __future__ import annotations
 
+import math
+import re
+from difflib import SequenceMatcher
 from functools import lru_cache
 from pathlib import Path
 
@@ -60,7 +63,7 @@ def align(
     accuracy). On some audio that conditioning backfires — whisper treats the
     prompt as already-decoded text and emits only a fraction of the words — so
     if the result fails the sanity check, retry without the prompt and keep
-    whichever attempt lands closer to the script's word count.
+    only an attempt that covers every script word with valid timing.
     """
     audio_path = Path(audio_path)
     if not audio_path.exists():
@@ -69,46 +72,84 @@ def align(
         raise ValueError("script must not be empty")
 
     model = _load_model(model_size)
-    timings = _transcribe(model, audio_path, script, use_prompt=True)
-    if not check_alignment(timings, script):
-        retry = _transcribe(model, audio_path, script, use_prompt=False)
-        if _count_gap(retry, script) < _count_gap(timings, script):
-            timings = retry
-    if not timings:
-        raise RuntimeError(f"alignment produced no words for {audio_path}")
-    return substitute_script_words(timings, script)
+    errors = []
+    for use_prompt in (True, False):
+        timings = _transcribe(model, audio_path, script, use_prompt=use_prompt)
+        if not timings:
+            errors.append("no words")
+            continue
+        try:
+            corrected = substitute_script_words(timings, script)
+            if check_alignment(corrected, script):
+                return corrected
+        except ValueError as error:
+            errors.append(str(error))
+    raise RuntimeError("alignment needs review: " + "; ".join(errors or ["invalid timestamps"]))
+
+
+def normalized(word: str) -> str:
+    return re.sub(r"[^\w]", "", word.casefold())
 
 
 def substitute_script_words(timings: list[WordTiming], script: str) -> list[WordTiming]:
-    """When counts match, put the script's exact words onto the timings.
+    """Match transcript tokens to script words without shifting later timestamps.
 
     We know the true transcript, so burned-in captions should show it verbatim
     (whisper occasionally mishears a word, e.g. "build log" -> "build blog").
     If the counts differ, keep whisper's words — a positional swap would drift.
     """
-    script_words = script.split()
-    if len(timings) != len(script_words):
-        return timings
-    return [
-        {"word": word, "start": t["start"], "end": t["end"]}
-        for word, t in zip(script_words, timings, strict=True)
-    ]
-
-
-def check_alignment(timings: list[WordTiming], script: str, tolerance: float = 0.25) -> bool:
-    """Cheap sanity check before spending anything downstream (fail loudly, cheaply).
-
-    True when the aligned word count is within `tolerance` of the script's word
-    count and timings are monotonically non-decreasing.
-    """
-    script_words = len(script.split())
-    if script_words == 0:
-        return False
-    ratio = abs(len(timings) - script_words) / script_words
-    if ratio > tolerance:
-        return False
-    return all(
-        t["end"] >= t["start"] and t["start"] >= timings[i - 1]["start"] - 0.01
-        for i, t in enumerate(timings)
-        if i > 0
+    expected = script.split()
+    actual = [t["word"] for t in timings]
+    result = []
+    matcher = SequenceMatcher(
+        None, [normalized(w) for w in expected], [normalized(w) for w in actual], autojunk=False
     )
+    for operation, a, b, c, d in matcher.get_opcodes():
+        if operation == "insert":
+            continue  # ignore extra recognizer tokens; never shift later matching words
+        if operation == "equal":
+            result.extend(
+                {**timings[j], "word": expected[i]}
+                for i, j in zip(range(a, b), range(c, d), strict=True)
+            )
+        elif (
+            b - a == 1
+            and d > c
+            and (
+                normalized(expected[a]) == "".join(normalized(w) for w in actual[c:d])
+                or (
+                    d - c == 1
+                    and SequenceMatcher(
+                        None, normalized(expected[a]), normalized(actual[c])
+                    ).ratio()
+                    >= 0.5
+                )
+            )
+        ):
+            result.append(
+                {"word": expected[a], "start": timings[c]["start"], "end": timings[d - 1]["end"]}
+            )
+        else:
+            raise ValueError(f"cannot locate script words: {' '.join(expected[a:b])}")
+    return result
+
+
+def check_alignment(timings: list[WordTiming], script: str, tolerance: float = 0.0) -> bool:
+    """Require script coverage and finite, positive, ordered word intervals."""
+    expected = script.split()
+    if not expected or len(timings) != len(expected):
+        return False
+    previous_end = 0.0
+    for timing, word in zip(timings, expected, strict=True):
+        start, end = timing["start"], timing["end"]
+        if (
+            not math.isfinite(start)
+            or not math.isfinite(end)
+            or start < 0
+            or end <= start
+            or start < previous_end - 0.03
+            or normalized(timing["word"]) != normalized(word)
+        ):
+            return False
+        previous_end = end
+    return True

@@ -75,3 +75,29 @@ The export receives technical checks only: preview it before sharing.
 Editable media lives under `projects/<id>/`; these assets are public like the demo.
 New generation runs save source segments and word timings automatically. Older Reels
 need their original segments and audio restored before they can be edited.
+
+
+## Reel quality and funnel integration
+
+The editor accepts MP4, PNG and JPEG replacements (20 MB/file; eight authenticated
+uploads per UTC day across the studio). Demo uploads are public. Saved revisions
+retain their source pool. Uploaded images can also serve as an optional logo.
+Brand presets cover caption styling and card background, accent and text colors.
+New projects retain card copy so revised exports can rebuild branded cards.
+Older bundles with only rendered clips cannot restyle their baked card text.
+
+Local alignment rejects missing transcript words and invalid timestamps instead of
+scaling cut points by word count. Cuts prefer nearby phrase boundaries. Short stock
+clips hold their final frame rather than loop. Captions are measured for fit and
+stop at text-card boundaries. Local QC flags silent audio, long internal pauses,
+caption timing errors, scene gaps and unusually short or long scenes. These checks
+add no paid AI calls. Existing voice settings and paid visual review are unchanged.
+
+The September showcase contains two manually curated examples with reused stock and
+one Gemini voiceover request each. Logged total estimate: $0.008772. They were
+rendered and reviewed locally; no paid footage picker or visual review was used.
+
+The ZeroToStore funnel links to the studio from
+https://markoj37.github.io/zerotostore/tools/reel-studio.html .
+The studio's generation and online export dispatch remain disconnected until
+separate workflow credentials are configured. Editing drafts is available.
