@@ -98,6 +98,6 @@ one Gemini voiceover request each. Logged total estimate: $0.008772. They were
 rendered and reviewed locally; no paid footage picker or visual review was used.
 
 The ZeroToStore funnel links to the studio from
-https://markoj37.github.io/zerotostore/tools/reel-studio.html .
+https://markoj37.github.io/zerotostore/#reel-studio .
 The studio's generation and online export dispatch remain disconnected until
 separate workflow credentials are configured. Editing drafts is available.
